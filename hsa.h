@@ -279,7 +279,7 @@ public:
 	inline virtual void Reset();
 
 private:
-	inline const detail::freelist::FindHeaderReturn FindFreeHeader(size_t arg_size) const;
+	inline const detail::freelist::FindHeaderReturn FindFreeHeader(detail::FreeListHeader* arg_start_header) const;
 
 	Allocator * allocator_ = nullptr;
 	char* mem_pool_ = nullptr;
@@ -349,7 +349,7 @@ LinearAllocator::LinearAllocator()
 	}
 	catch( ... )
 	{
-		HSA_ASSERT( false );
+		HSA_ASSERT( false )
 	}
 }
 LinearAllocator::LinearAllocator( size_t arg_size, Allocator* arg_allocator ) :
@@ -593,7 +593,7 @@ inline void* BitmapAllocator<ChunkSize>::Allocate()
 			}
 			if( startng_chunk == chunk_to_check )
 			{
-				HSA_ASSERT( false );
+				HSA_ASSERT( false )
 			}
 		}
 	} while( !chunk_allocated );
@@ -628,7 +628,7 @@ FreeListAllocator::FreeListAllocator()
 	}
 	catch( ... )
 	{
-		HSA_ASSERT( false );
+		HSA_ASSERT( false )
 	}
 
 	first_header_in_pool_ = reinterpret_cast< detail::FreeListHeader* >( mem_pool_ );
@@ -672,13 +672,8 @@ inline void* FreeListAllocator::Allocate( size_t arg_size, size_t arg_alignment 
 
 	do
 	{
-
-
 		size_t aligned_offset = detail::calcAlignedOffset( reinterpret_cast< size_t >( loop_header ) + sizeof( detail::FreeListHeader ), arg_alignment );
 		size_t aligned_size = arg_size + aligned_offset;
-
-		// find header.
-		// auto free_header = FindFreeHeader();
 
 		if( loop_header->is_free_ && loop_header->size_ <= aligned_size )
 		{
@@ -688,6 +683,14 @@ inline void* FreeListAllocator::Allocate( size_t arg_size, size_t arg_alignment 
 			if( loop_header->size_ - aligned_size >= sizeof( detail::FreeListHeader ) + detail::freelist::kminimum_chunk_size )
 			{
 				//split chunk
+			}
+		}
+		else
+		{
+			auto find_result = FindFreeHeader( previous_header_ );
+			if( find_result.found_ == nullptr ) // findFreeHeader looped and found nothing. 
+			{
+				HSA_ASSERT( false ) //out of memory
 			}
 		}
 
@@ -704,44 +707,52 @@ inline void FreeListAllocator::Reset()
 {
 
 }
-const detail::freelist::FindHeaderReturn FreeListAllocator::FindFreeHeader( size_t arg_size ) const
+const detail::freelist::FindHeaderReturn FreeListAllocator::FindFreeHeader( detail::FreeListHeader* arg_start_header ) const
 {
 	bool found_free_header = false;
-	detail::FreeListHeader* start_header = previous_header_;
-	detail::FreeListHeader* previous_header = previous_header_; // prevent overriding member variable.
+	detail::FreeListHeader* start_header = arg_start_header;
+	detail::FreeListHeader* previous_header = nullptr;
+	detail::FreeListHeader* next_header = arg_start_header; 
 	detail::freelist::FindHeaderReturn result;
 
 	if( mem_pool_ == nullptr )
 	{
-		HSA_ASSERT( false );
+		HSA_ASSERT( false )
 	}
-	if( previous_header == nullptr )
+	if( next_header == nullptr )
 	{
-		start_header = previous_header = first_header_in_pool_; // start from the first header.
-		if( previous_header->is_free_  && (previous_header->size_ >= arg_size))
+		start_header = next_header = first_header_in_pool_; // start from the first header. and prevent endless loop
+		if( next_header->is_free_ )
 		{
-			result.found_ = previous_header;
+			result.found_ = next_header;
 			result.preceding_ = nullptr;
 			found_free_header = true;
 		}
 	}
 	while( !found_free_header )
 	{
-		if( ( reinterpret_cast<size_t>(previous_header) + previous_header->size_ + sizeof(detail::FreeListHeader) ) - reinterpret_cast<size_t>( mem_pool_ ) >= pool_size_ )// set to the first header.
+		if( ( reinterpret_cast<size_t>(next_header) + next_header->size_ + sizeof(detail::FreeListHeader) ) - reinterpret_cast<size_t>( mem_pool_ ) >= pool_size_ )// set to the first header.
 		{
-			previous_header = first_header_in_pool_;
+			next_header = first_header_in_pool_;
+			previous_header = nullptr;	
 		}
 		else
 		{
-			previous_header = reinterpret_cast< detail::FreeListHeader* >( reinterpret_cast< char* >( previous_header ) + previous_header->size_ + sizeof( detail::FreeListHeader ) );
+			previous_header = next_header;
+			next_header = reinterpret_cast< detail::FreeListHeader* >( reinterpret_cast< char* >( next_header ) + next_header->size_ + sizeof( detail::FreeListHeader ) );
 		}
 
-
-		//TODO  check if pointer is not the same as arg_start make sure the first header in the mem pool can be aligned. finish algorithem that uses findheaderreturn.
-
-
-
-
+		if( next_header == start_header )
+		{
+			found_free_header = true;
+			result.found_ = nullptr;
+			result.preceding_ = nullptr;
+		}else if( next_header->is_free_ )
+		{
+			result.found_ = next_header;
+			result.preceding_ = previous_header;
+			found_free_header = true;
+		}
 	}
 	return result;
 }
