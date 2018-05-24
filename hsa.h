@@ -712,7 +712,7 @@ inline void* FreeListAllocator::Allocate( size_t arg_size, size_t arg_alignment 
 				auto mp_alignment_offset = detail::calcAlignedOffset( reinterpret_cast< size_t >( mem_pool_ ) + sizeof( detail::FreeListHeader ), arg_alignment );
 				
 				auto mp_difference = reinterpret_cast< size_t >( loop_header ) - reinterpret_cast< size_t >( mem_pool_ );
-				int bytes_to_shift = -( mp_difference - mp_alignment_offset );
+				int bytes_to_shift = -( int(mp_difference) - int(mp_alignment_offset) );
 
 				loop_header = reinterpret_cast< detail::FreeListHeader* >( reinterpret_cast< char* >( loop_header ) + bytes_to_shift );
 				loop_header->size_ -= bytes_to_shift;

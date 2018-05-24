@@ -16,7 +16,7 @@ int main( int arg_n, char** arg_s )
 	BitmapAllocator<64> test1 = BitmapAllocator<64>(512); 
 	for( size_t total_runs = 0; total_runs < 100; total_runs++ )
 	{
-		for( size_t repeat = 0; repeat < 10000; repeat++ )
+		for( size_t repeat = 0; repeat < 1000; repeat++ )
 		{
 			auto begin = std::chrono::high_resolution_clock::now();
 			for( size_t i = 0; i < 512; i++ )
