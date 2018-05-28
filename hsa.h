@@ -692,7 +692,7 @@ inline void* FreeListAllocator::Allocate( size_t arg_size, size_t arg_alignment 
 				auto mp_difference = reinterpret_cast< size_t >( loop_header ) - reinterpret_cast< size_t >( mem_pool_ );
 				int bytes_to_shift = -( int(mp_difference) - int(mp_alignment_offset) );
 
-				loop_header = reinterpret_cast< detail::FreeListHeader* >( reinterpret_cast< char* >( loop_header ) + bytes_to_shift );
+				first_header_in_pool_ = loop_header = reinterpret_cast< detail::FreeListHeader* >( reinterpret_cast< char* >( loop_header ) + bytes_to_shift );
 				loop_header->size_ -= bytes_to_shift;
 				return_ptr = reinterpret_cast< void* >( reinterpret_cast< char* >( loop_header ) + sizeof( detail::FreeListHeader ) );
 
@@ -704,13 +704,27 @@ inline void* FreeListAllocator::Allocate( size_t arg_size, size_t arg_alignment 
 
 	return return_ptr;
 }
-inline void FreeListAllocator::Free( void* )
+inline void FreeListAllocator::Free( void* arg_ptr)
 {
+	char* data_ptr = reinterpret_cast< char* >( arg_ptr );
+	detail::FreeListHeader* header_ptr = reinterpret_cast< detail::FreeListHeader* >( data_ptr - sizeof( detail::FreeListHeader ) );
 
+	header_ptr->is_free_ = true;
 }
 inline void FreeListAllocator::Reset()
 {
+	bool reset_done = false;
+	auto header_ptr = first_header_in_pool_;
 
+	do
+	{
+		header_ptr->is_free_ = true;
+		header_ptr = reinterpret_cast< detail::FreeListHeader* >( reinterpret_cast< char* >( header_ptr ) + header_ptr->size_ + sizeof( detail::FreeListHeader ) );
+		if(  reinterpret_cast<size_t>(header_ptr) - reinterpret_cast<size_t>(mem_pool_) >= pool_size_ )
+		{
+			reset_done = true;
+		}
+	} while( !reset_done );
 }
 const detail::freelist::FindHeaderReturn FreeListAllocator::FindFreeHeader( detail::FreeListHeader* arg_start_header ) const
 {
