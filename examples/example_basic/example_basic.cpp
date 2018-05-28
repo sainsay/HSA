@@ -3,6 +3,7 @@
 // define HSA options
 // #define HSA_DONT_ASSERT
 // define HSA implemntation
+#define HSA_DONT_ASSERT
 #define HSA_IMPLEMENTATION
 // include hsa.h
 #include <hsa.h>

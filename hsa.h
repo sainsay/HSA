@@ -239,8 +239,8 @@ namespace detail
 }
 
 /**
-* @brief Free list Allocator for general purpose allocation.
-* @details Bitmap Allocator for general purpose allocation. Dealocation Possible.
+* @brief Freelist Allocator for general purpose allocation.
+* @details Freelist Allocator for general purpose allocation. Dealocation Possible.
 * Allocator can be reset and reused.
 */
 class FreeListAllocator : public Allocator
@@ -307,50 +307,34 @@ namespace detail
 	{
 		size_t aligned_offset = arg_alignment - ( arg_to_align   % arg_alignment );
 		return aligned_offset == arg_alignment ? 0 : aligned_offset;
-
-		//if( aligned_offset == arg_alignment ) // no offset needed if they are equal.
-		//{
-		//	aligned_offset = 0;
-		//}
-		//return aligned_offset;
 	}
 	namespace freelist
 	{
 		inline FreeListHeader* splitHeaderWithSize( FreeListHeader* arg_header_ptr, size_t const arg_size )
 		{
-			//FreeListHeader* next_header = arg_header_ptr->next_header_; // save previous next header.
-
 			//move ptr to new header pos.
 			char* hdr_char_ptr = reinterpret_cast< char* >( arg_header_ptr );
 			hdr_char_ptr += sizeof( FreeListHeader ) + arg_size;
 			FreeListHeader* return_ptr = reinterpret_cast< FreeListHeader* >( hdr_char_ptr );
 
 			// config new header.
-			//return_ptr->next_header_ = next_header;
 			return_ptr->size_ = arg_header_ptr->size_ - arg_size - sizeof( FreeListHeader );
 			return_ptr->is_free_ = true;
 
 			// config arg_header
 			arg_header_ptr->size_ = arg_size;
-			//arg_header_ptr->next_header_ = return_ptr;
 
 			return return_ptr;
 		}
-
 	}
 }
 #pragma endregion
 #pragma region LinearAllocatorImplementation
 LinearAllocator::LinearAllocator()
 {
-	try
-	{
+	
 		mem_pool_ = static_cast< char* >( malloc( pool_size_ = MIBI( 50 ) ) );
-	}
-	catch( ... )
-	{
-		HSA_ASSERT( false )
-	}
+		HSA_ASSERT( mem_pool_ )
 }
 LinearAllocator::LinearAllocator( size_t arg_size, Allocator* arg_allocator ) :
 	allocator_( arg_allocator )
@@ -363,7 +347,7 @@ LinearAllocator::LinearAllocator( size_t arg_size, Allocator* arg_allocator ) :
 	{
 		mem_pool_ = static_cast< char* >( malloc( pool_size_ = arg_size ) );
 	}
-
+	HSA_ASSERT( mem_pool_ )
 }
 LinearAllocator::~LinearAllocator()
 {
@@ -406,14 +390,10 @@ inline void LinearAllocator::Reset()
 StackAllocator::StackAllocator()
 {
 
-	try
-	{
-		mem_pool_ = static_cast< char* >( malloc( pool_size_ = MIBI( 50 ) ) );
-	}
-	catch( ... )
-	{
-		HSA_ASSERT( false )
-	}
+	
+	mem_pool_ = static_cast< char* >( malloc( pool_size_ = MIBI( 50 ) ) );
+
+	HSA_ASSERT( mem_pool_ )
 
 }
 StackAllocator::StackAllocator( size_t arg_size, Allocator* arg_allocator ) :
@@ -427,6 +407,7 @@ StackAllocator::StackAllocator( size_t arg_size, Allocator* arg_allocator ) :
 	{
 		mem_pool_ = static_cast< char* >( malloc( pool_size_ = arg_size ) );
 	}
+	HSA_ASSERT( mem_pool_ )
 }
 StackAllocator::~StackAllocator()
 {
@@ -516,6 +497,7 @@ BitmapAllocator<ChunkSize>::BitmapAllocator()
 	bitmap_ = static_cast< unsigned char* >( malloc( 64 * sizeof( char ) ) ); //allocate bitmap
 
 	mem_pool_ = static_cast< detail::bitmapChunk<ChunkSize>* >( malloc( 512 * sizeof( detail::bitmapChunk<KIBI( 1 )> ) ) );
+	HSA_ASSERT( mem_pool_ )
 	chunk_size_ = KIBI( 1 );
 	chunk_count_ = 512;
 	for( size_t i = 0; i < 64; i++ )
@@ -541,6 +523,7 @@ BitmapAllocator<ChunkSize>::BitmapAllocator( size_t arg_chunk_count, Allocator* 
 		mem_pool_ = static_cast< detail::bitmapChunk<ChunkSize>* >( malloc( corrected_count * sizeof( detail::bitmapChunk<ChunkSize> ) ) );
 
 	}
+	HSA_ASSERT( mem_pool_ )
 	for( size_t i = 0, size_t = corrected_count / 8; i < 64; i++ )
 	{
 		bitmap_[i] = 0b00000000;
@@ -622,14 +605,9 @@ inline void BitmapAllocator<ChunkSize>::Reset()
 #pragma region FreeListAllocatorImplementation
 FreeListAllocator::FreeListAllocator()
 {
-	try
-	{
-		mem_pool_ = static_cast< char* >( malloc( pool_size_ = MIBI( 50 ) ) );
-	}
-	catch( ... )
-	{
-		HSA_ASSERT( false )
-	}
+	
+	mem_pool_ = static_cast< char* >( malloc( pool_size_ = MIBI( 50 ) ) );
+	HSA_ASSERT( mem_pool_ )
 
 	first_header_in_pool_ = reinterpret_cast< detail::FreeListHeader* >( mem_pool_ );
 
@@ -647,7 +625,7 @@ FreeListAllocator::FreeListAllocator( size_t arg_size, Allocator* arg_allocator 
 	{
 		mem_pool_ = static_cast< char* >( malloc( pool_size_ = arg_size ) );
 	}
-
+	HSA_ASSERT( mem_pool_ )
 	first_header_in_pool_ = reinterpret_cast< detail::FreeListHeader* >( mem_pool_ );
 
 	first_header_in_pool_->is_free_ = true;
