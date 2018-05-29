@@ -277,6 +277,11 @@ public:
 	* @attention Previous memory allocations might still be valid. use with care.
 	*/
 	inline virtual void Reset();
+	/**
+	* @brief Merges empty chunks of memory
+	* @details Merges empty chunks of memory. does not move any data around. all memory allocated is still valid.
+	*/
+	inline virtual void Defragment();
 
 private:
 	inline const detail::freelist::FindHeaderReturn FindFreeHeader( detail::FreeListHeader* arg_start_header ) const;
@@ -325,6 +330,15 @@ namespace detail
 			arg_header_ptr->size_ = arg_size;
 
 			return return_ptr;
+		}
+		inline void mergeHeaders( FreeListHeader* arg_header_lhs, FreeListHeader* arg_header_rhs )
+		{
+
+			if( reinterpret_cast<char*>(arg_header_lhs) + arg_header_lhs->size_ + sizeof(detail::FreeListHeader) != reinterpret_cast<char*>(arg_header_rhs) )
+			{
+				HSA_ASSERT(false) // headers are not next to eachother. (or something is gone wrong with alignment) double check ;)
+			}
+			arg_header_lhs->size_ += arg_header_rhs->size_ + sizeof( detail::FreeListHeader );
 		}
 	}
 }
@@ -725,7 +739,33 @@ inline void FreeListAllocator::Reset()
 			reset_done = true;
 		}
 	} while( !reset_done );
+	Defragment();
 }
+
+inline void FreeListAllocator::Defragment()
+{
+	bool defragment_done = false;
+	auto header_ptr = first_header_in_pool_;
+
+	do
+	{
+		auto next_header_ptr = reinterpret_cast< detail::FreeListHeader* >( reinterpret_cast< char* >( header_ptr ) + header_ptr->size_ + sizeof( detail::FreeListHeader ) );
+		if( header_ptr->is_free_ && next_header_ptr->is_free_ )
+		{
+			detail::freelist::mergeHeaders( header_ptr, next_header_ptr );
+		}
+		else
+		{
+			header_ptr = next_header_ptr;
+		}
+
+		if( reinterpret_cast<size_t>( header_ptr ) - reinterpret_cast<size_t>( mem_pool_ ) >= pool_size_ )
+		{
+			defragment_done = true;
+		}
+	} while( !defragment_done );
+}
+
 const detail::freelist::FindHeaderReturn FreeListAllocator::FindFreeHeader( detail::FreeListHeader* arg_start_header ) const
 {
 	bool found_free_header = false;
