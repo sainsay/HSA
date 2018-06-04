@@ -305,6 +305,7 @@ private:
 #define HSA_ASSERT( arg ) assert( arg );
 #endif // HSA_DONT_ASSERT
 
+
 #pragma region HelperFunctions
 namespace detail
 {
@@ -333,7 +334,6 @@ namespace detail
 		}
 		inline void mergeHeaders( FreeListHeader* arg_header_lhs, FreeListHeader* arg_header_rhs )
 		{
-
 			if( reinterpret_cast<char*>(arg_header_lhs) + arg_header_lhs->size_ + sizeof(detail::FreeListHeader) != reinterpret_cast<char*>(arg_header_rhs) )
 			{
 				HSA_ASSERT(false) // headers are not next to eachother. (or something is gone wrong with alignment) double check ;)
@@ -346,8 +346,10 @@ namespace detail
 #pragma region LinearAllocatorImplementation
 LinearAllocator::LinearAllocator()
 {
-	
-		mem_pool_ = static_cast< char* >( malloc( pool_size_ = MIBI( 50 ) ) );
+#ifndef HSA_NO_MALLOC
+	mem_pool_ = static_cast< char* >( malloc( pool_size_ = MIBI( 50 ) ) );
+#endif // !HSA_NO_MALLOC
+
 		HSA_ASSERT( mem_pool_ )
 }
 LinearAllocator::LinearAllocator( size_t arg_size, Allocator* arg_allocator ) :
@@ -359,7 +361,9 @@ LinearAllocator::LinearAllocator( size_t arg_size, Allocator* arg_allocator ) :
 	}
 	else
 	{
+#ifndef HSA_NO_MALLOC
 		mem_pool_ = static_cast< char* >( malloc( pool_size_ = arg_size ) );
+#endif
 	}
 	HSA_ASSERT( mem_pool_ )
 }
@@ -387,13 +391,13 @@ inline void* LinearAllocator::Allocate( size_t arg_size, size_t arg_alignment )
 	}
 	else
 	{
-		HSA_ASSERT( false )
+		HSA_ASSERT( false ) // out of memory
 	}
 	return ret_ptr;
 }
 inline void LinearAllocator::Free( void* arg_ptr )
 {
-
+	HSA_ASSERT(false) //you cannot free memory with a linear allocator
 }
 inline void LinearAllocator::Reset()
 {
@@ -403,10 +407,9 @@ inline void LinearAllocator::Reset()
 #pragma region StackAllocatorImplementation
 StackAllocator::StackAllocator()
 {
-
-	
+#ifndef HSA_NO_MALLOC
 	mem_pool_ = static_cast< char* >( malloc( pool_size_ = MIBI( 50 ) ) );
-
+#endif
 	HSA_ASSERT( mem_pool_ )
 
 }
@@ -419,7 +422,9 @@ StackAllocator::StackAllocator( size_t arg_size, Allocator* arg_allocator ) :
 	}
 	else
 	{
+#ifndef HSA_NO_MALLOC
 		mem_pool_ = static_cast< char* >( malloc( pool_size_ = arg_size ) );
+#endif
 	}
 	HSA_ASSERT( mem_pool_ )
 }
@@ -438,11 +443,11 @@ StackAllocator::~StackAllocator()
 inline void* StackAllocator::Allocate( size_t arg_size, size_t arg_alignment )
 {
 	void* return_ptr = nullptr;
-	size_t aligned_offset = detail::calcAlignedOffset( current_offset_, arg_alignment );
+	size_t aligned_offset = detail::calcAlignedOffset( current_offset_ + sizeof(detail::StackHeader), arg_alignment );
 
 	if( current_offset_ + aligned_offset + sizeof( detail::StackHeader ) + arg_size <= pool_size_ )
 	{
-		detail::StackHeader* header_ptr = reinterpret_cast< detail::StackHeader* >( mem_pool_ + current_offset_ );
+		detail::StackHeader* header_ptr = reinterpret_cast< detail::StackHeader* >( mem_pool_ + current_offset_  + aligned_offset);
 		header_ptr->is_free_ = false;
 		header_ptr->previous_header_ = last_allocated_header;
 		last_allocated_header = header_ptr;
@@ -451,24 +456,25 @@ inline void* StackAllocator::Allocate( size_t arg_size, size_t arg_alignment )
 	}
 	else
 	{
-		HSA_ASSERT( false )
+		HSA_ASSERT( false ) // out of memory
 	}
 
 	return return_ptr;
 }
 inline void StackAllocator::Free( void* arg_ptr )
 {
-	char* arg_char_ptr = reinterpret_cast< char* >( arg_ptr );
-	detail::StackHeader* header_ptr = reinterpret_cast< detail::StackHeader* >( arg_char_ptr - sizeof( header_ptr ) );
-	header_ptr->is_free_ = true;
 	if( last_allocated_header == nullptr )
 	{
 		HSA_ASSERT( false ) //deallocation but never allocated
 	}
-	if( arg_ptr < mem_pool_ + sizeof( detail::StackHeader ) && arg_ptr > mem_pool_ + pool_size_ - sizeof( header_ptr ) )
+	if( arg_ptr < mem_pool_ + sizeof( detail::StackHeader ) && arg_ptr > mem_pool_ + pool_size_ )
 	{
 		HSA_ASSERT( false ) //Deallocating outside of Allocator memory
 	}
+
+	char* arg_char_ptr = reinterpret_cast< char* >( arg_ptr );
+	detail::StackHeader* header_ptr = reinterpret_cast< detail::StackHeader* >( arg_char_ptr - sizeof( header_ptr ) );
+	header_ptr->is_free_ = true;
 	if( header_ptr == last_allocated_header )
 	{
 		detail::StackHeader* temp_header_ptr = header_ptr;
@@ -508,11 +514,12 @@ inline void StackAllocator::Reset()
 template <size_t ChunkSize>
 BitmapAllocator<ChunkSize>::BitmapAllocator()
 {
+#ifndef HSA_NO_MALLOC
 	bitmap_ = static_cast< unsigned char* >( malloc( 64 * sizeof( char ) ) ); //allocate bitmap
-
-	mem_pool_ = static_cast< detail::bitmapChunk<ChunkSize>* >( malloc( 512 * sizeof( detail::bitmapChunk<KIBI( 1 )> ) ) );
+	mem_pool_ = static_cast< detail::bitmapChunk<ChunkSize>* >( malloc( 512 * ChunkSize ) );
+#endif
 	HSA_ASSERT( mem_pool_ )
-	chunk_size_ = KIBI( 1 );
+	chunk_size_ = ChunkSize;
 	chunk_count_ = 512;
 	for( size_t i = 0; i < 64; i++ )
 	{
@@ -524,7 +531,7 @@ BitmapAllocator<ChunkSize>::BitmapAllocator( size_t arg_chunk_count, Allocator* 
 	allocator_( arg_allocator )
 {
 	size_t corrected_count = arg_chunk_count + detail::calcAlignedOffset( arg_chunk_count, 8 );
-	chunk_size_ = sizeof( detail::bitmapChunk<ChunkSize> );
+	chunk_size_ = ChunkSize;
 	chunk_count_ = corrected_count;
 	if( arg_allocator )
 	{
@@ -533,8 +540,10 @@ BitmapAllocator<ChunkSize>::BitmapAllocator( size_t arg_chunk_count, Allocator* 
 	}
 	else
 	{
+#ifndef HSA_NO_MALLOC
 		bitmap_ = static_cast< unsigned char* >( malloc( ( corrected_count / 8 ) * sizeof( char ) ) );
 		mem_pool_ = static_cast< detail::bitmapChunk<ChunkSize>* >( malloc( corrected_count * sizeof( detail::bitmapChunk<ChunkSize> ) ) );
+#endif
 
 	}
 	HSA_ASSERT( mem_pool_ )
@@ -619,8 +628,9 @@ inline void BitmapAllocator<ChunkSize>::Reset()
 #pragma region FreeListAllocatorImplementation
 FreeListAllocator::FreeListAllocator()
 {
-	
+#ifndef HSA_NO_MALLOC
 	mem_pool_ = static_cast< char* >( malloc( pool_size_ = MIBI( 50 ) ) );
+#endif
 	HSA_ASSERT( mem_pool_ )
 
 	first_header_in_pool_ = reinterpret_cast< detail::FreeListHeader* >( mem_pool_ );
@@ -637,7 +647,9 @@ FreeListAllocator::FreeListAllocator( size_t arg_size, Allocator* arg_allocator 
 	}
 	else
 	{
+#ifndef HSA_NO_MALLOC
 		mem_pool_ = static_cast< char* >( malloc( pool_size_ = arg_size ) );
+#endif
 	}
 	HSA_ASSERT( mem_pool_ )
 	first_header_in_pool_ = reinterpret_cast< detail::FreeListHeader* >( mem_pool_ );
