@@ -7,7 +7,6 @@ Header-only Simple Allocators.
 The goal for this project is to provide well-written allocators that are easy to integrate into a project, provide sample projects on how to use and extend the collection and provide a good overview of the implementation of the allocators.
 
 The code is written with a focus on readability and portability. 
-This means that in some cases a slower but readable implementation is used instead of a single line of bitwise operators.
 It also means that this code is written with as few as possible dependencies. If there is code that does have a dependency, this code will be optional.
 
 # How to... 
