@@ -3,7 +3,7 @@
 // define HSA options
 // #define HSA_DONT_ASSERT
 // define HSA implemntation
-#define HSA_DONT_ASSERT
+// #define HSA_DONT_ASSERT
 #define HSA_IMPLEMENTATION
 // include hsa.h
 #include <hsa.h>
@@ -11,41 +11,84 @@
 #include <chrono>
 #include <iostream>
 
+#define DO_MALLOC
+
+const int sample_size = 4096;
+const int alloc_size = 4096;
+const int repeat_samples = 100;
 int main( int arg_n, char** arg_s )
 {
-	char* test_ptr = nullptr;
-	BitmapAllocator<64> test1 = BitmapAllocator<64>(512); 
-	for( size_t total_runs = 0; total_runs < 100; total_runs++ )
+	long long time_array_custom[repeat_samples] = { 0 };
+	long long time_array_malloc[repeat_samples] = { 0 };
+
+	FreeListAllocator test1 = FreeListAllocator( GIBI( 1 ) );
+	char* ptr_array[sample_size];
+	std::chrono::steady_clock::time_point begin;
+	std::chrono::steady_clock::time_point end;
+
+	for( size_t repeat = 0; repeat < repeat_samples; repeat++ )
 	{
-		for( size_t repeat = 0; repeat < 1000; repeat++ )
+
+#ifdef DO_MALLOC
+		begin = std::chrono::high_resolution_clock::now();
+#endif // DO_MALLOC
+		for( size_t i = 0; i < sample_size; i++ )
 		{
-			auto begin = std::chrono::high_resolution_clock::now();
-			for( size_t i = 0; i < 512; i++ )
-			{
-				test_ptr = ( char* )test1.Allocate();
-				*test_ptr = 0b01111111;
-				test1.Free( test_ptr );
-			}
-			auto end = std::chrono::high_resolution_clock::now();
-
-			long long custom_alloc_time = std::chrono::duration_cast< std::chrono::nanoseconds >( end - begin ).count();
-
-			begin = std::chrono::high_resolution_clock::now();
-			for( size_t i = 0; i < 512; i++ )
-			{
-				test_ptr = ( char* )malloc( 64 * sizeof( char ) );
-				*test_ptr = 0b01111111;
-				free( test_ptr );
-			}
-			end = std::chrono::high_resolution_clock::now();
-			long long malloc_time = std::chrono::duration_cast< std::chrono::nanoseconds >( end - begin ).count();
-
-			std::cout << "custom alloc Time Taken:" << custom_alloc_time << std::endl;
-			std::cout << "malloc Time Taken:" << malloc_time << std::endl;
-
+			ptr_array[i] = ( char* )test1.Allocate( alloc_size * sizeof( char ) );
+			*ptr_array[i] = 0b01111111;
 		}
+#ifdef DO_MALLOC
+		end = std::chrono::high_resolution_clock::now();
+		long long custom_alloc_time = std::chrono::duration_cast< std::chrono::nanoseconds >( end - begin ).count();
+		time_array_custom[repeat] = custom_alloc_time;
+#endif // DO_MALLOC
+
+		for( size_t i = 0; i < sample_size; i++ )
+		{
+			test1.Free( ptr_array[i] );
+		}
+#ifdef DO_MALLOC
+
+		begin = std::chrono::high_resolution_clock::now();
+		for( size_t i = 0; i < sample_size; i++ )
+		{
+			ptr_array[i] = ( char* )malloc( alloc_size * sizeof( char ) );
+			*ptr_array[i] = 0b01111111;
+		}
+		end = std::chrono::high_resolution_clock::now();
+		long long malloc_time = std::chrono::duration_cast< std::chrono::nanoseconds >( end - begin ).count();
+		time_array_malloc[repeat] = malloc_time;
+		for( size_t i = 0; i < sample_size; i++ )
+		{
+			free( ptr_array[i] );
+		}
+		std::cout << "custom alloc Time Taken:" << custom_alloc_time << std::endl;
+		std::cout << "malloc Time Taken:" << malloc_time << std::endl;
+#endif // DO_MALLOC
+
 	}
+#ifdef DO_MALLOC
+	//compute averages;
+	long long average = 0;
+	for( size_t i = 0; i < repeat_samples; i++ )
+	{
+		average += time_array_custom[i];
+	}
+	average /= repeat_samples;
+	std::cout << "custom alloc average: " << average << std::endl;
+
+	for( size_t i = 0; i < repeat_samples; i++ )
+	{
+		average += time_array_malloc[i];
+	}
+	average /= repeat_samples;
+	std::cout << "malloc alloc average: " << average << std::endl;
 
 	std::getchar();
+#endif // DO_MALLOC
+
+
+
+
 	return 0;
 }
