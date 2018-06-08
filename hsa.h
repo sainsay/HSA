@@ -231,6 +231,11 @@ namespace detail
 		const size_t kminimum_chunk_size = 64;
 		struct FindHeaderReturn
 		{
+			FindHeaderReturn( FreeListHeader* arg_found, FreeListHeader* arg_preceding ):
+				found_( arg_found ),
+				preceding_( arg_preceding)
+			{
+			}
 			FreeListHeader* found_ = nullptr;
 			FreeListHeader* preceding_ = nullptr;
 		};
@@ -311,6 +316,10 @@ namespace detail
 {
 	inline size_t calcAlignedOffset( size_t arg_to_align, size_t arg_alignment )
 	{
+		if( arg_alignment == 0 )
+		{
+			return 0;
+		}
 		size_t aligned_offset = arg_alignment - ( arg_to_align   % arg_alignment );
 		return aligned_offset == arg_alignment ? 0 : aligned_offset;
 	}
@@ -626,7 +635,7 @@ inline void BitmapAllocator<ChunkSize>::Reset()
 }
 #pragma endregion
 #pragma region FreeListAllocatorImplementation
-FreeListAllocator::FreeListAllocator()
+FreeListAllocator::FreeListAllocator() 
 {
 #ifndef HSA_NO_MALLOC
 	mem_pool_ = static_cast< char* >( malloc( pool_size_ = MIBI( 50 ) ) );
@@ -671,7 +680,7 @@ FreeListAllocator::~FreeListAllocator()
 inline void* FreeListAllocator::Allocate( size_t arg_size, size_t arg_alignment )
 {
 	void* return_ptr = nullptr;
-	
+
 	detail::FreeListHeader* start_header = nullptr; 
 	detail::FreeListHeader* preceding_header = nullptr;
 	detail::FreeListHeader* loop_header = nullptr;
@@ -687,14 +696,14 @@ inline void* FreeListAllocator::Allocate( size_t arg_size, size_t arg_alignment 
 		else
 		{
 			loop_header = find_result.found_;
-			preceding_header = find_result.found_;
+			preceding_header = find_result.preceding_;
 			start_header = start_header == nullptr ? find_result.found_ : nullptr;
 		}
 
 		size_t aligned_offset = detail::calcAlignedOffset( reinterpret_cast< size_t >( loop_header ) + sizeof( detail::FreeListHeader ), arg_alignment );
 		size_t aligned_size = arg_size + aligned_offset;
 
-		if( loop_header->is_free_ && loop_header->size_ <= aligned_size )
+		if( loop_header->is_free_ && loop_header->size_ >= aligned_size )
 		{
 			allocated_memory = true;
 			
@@ -708,7 +717,7 @@ inline void* FreeListAllocator::Allocate( size_t arg_size, size_t arg_alignment 
 				preceding_header->size_ += aligned_offset;
 				loop_header = reinterpret_cast< detail::FreeListHeader* >( reinterpret_cast< char* >( loop_header ) + aligned_offset ); // shift loop header so it the data now is aligned.
 				loop_header->size_ -= aligned_offset;
-
+				loop_header->is_free_ = false;
 				return_ptr = reinterpret_cast< void* >( reinterpret_cast< char* >( loop_header ) + sizeof( detail::FreeListHeader ) );
 			}
 			else // first header in the memory pool
@@ -720,22 +729,18 @@ inline void* FreeListAllocator::Allocate( size_t arg_size, size_t arg_alignment 
 
 				first_header_in_pool_ = loop_header = reinterpret_cast< detail::FreeListHeader* >( reinterpret_cast< char* >( loop_header ) + bytes_to_shift );
 				loop_header->size_ -= bytes_to_shift;
+				loop_header->is_free_ = false;
 				return_ptr = reinterpret_cast< void* >( reinterpret_cast< char* >( loop_header ) + sizeof( detail::FreeListHeader ) );
 
 			}
 			previous_header_ = loop_header;
 		}
 	} while( !allocated_memory );
-
-
 	return return_ptr;
 }
 inline void FreeListAllocator::Free( void* arg_ptr)
 {
-	char* data_ptr = reinterpret_cast< char* >( arg_ptr );
-	detail::FreeListHeader* header_ptr = reinterpret_cast< detail::FreeListHeader* >( data_ptr - sizeof( detail::FreeListHeader ) );
-
-	header_ptr->is_free_ = true;
+	reinterpret_cast< detail::FreeListHeader* >( reinterpret_cast< char* >( arg_ptr ) - sizeof( detail::FreeListHeader ) )->is_free_ = true;
 }
 inline void FreeListAllocator::Reset()
 {
@@ -780,11 +785,13 @@ inline void FreeListAllocator::Defragment()
 
 const detail::freelist::FindHeaderReturn FreeListAllocator::FindFreeHeader( detail::FreeListHeader* arg_start_header ) const
 {
+	
 	bool found_free_header = false;
 	detail::FreeListHeader* start_header = arg_start_header;
 	detail::FreeListHeader* previous_header = nullptr;
 	detail::FreeListHeader* next_header = arg_start_header;
-	detail::freelist::FindHeaderReturn result;
+	detail::FreeListHeader* result_found = nullptr;
+	detail::FreeListHeader* result_preciding = nullptr;
 
 	if( mem_pool_ == nullptr )
 	{
@@ -795,8 +802,7 @@ const detail::freelist::FindHeaderReturn FreeListAllocator::FindFreeHeader( deta
 		start_header = next_header = first_header_in_pool_; // start from the first header. and prevent endless loop
 		if( next_header->is_free_ )
 		{
-			result.found_ = next_header;
-			result.preceding_ = nullptr;
+			result_found = next_header;
 			found_free_header = true;
 		}
 	}
@@ -816,17 +822,15 @@ const detail::freelist::FindHeaderReturn FreeListAllocator::FindFreeHeader( deta
 		if( next_header == start_header )
 		{
 			found_free_header = true;
-			result.found_ = nullptr;
-			result.preceding_ = nullptr;
 		}
 		else if( next_header->is_free_ )
 		{
-			result.found_ = next_header;
-			result.preceding_ = previous_header;
+			result_found = next_header;
+			result_preciding = previous_header;
 			found_free_header = true;
 		}
 	}
-	return result;
+	return detail::freelist::FindHeaderReturn(result_found, result_preciding);
 }
 #pragma endregion
 #endif // HSA_IMPLEMENTATION
