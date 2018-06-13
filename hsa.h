@@ -975,29 +975,31 @@ inline void* FreeListAllocator::Allocate( size_t arg_size, size_t arg_alignment 
 	{
 		auto* header = *itr;
 		size_t aligned_offset = detail::calcAlignedOffset( reinterpret_cast< size_t >( header->header_ptr_ ) + sizeof( detail::FreeListAllocationHeader ), arg_alignment );
-		size_t aligned_size = arg_size + aligned_offset;
-		size_t total_aligned_size = aligned_size + sizeof(detail::FreeListAllocationHeader);
+		size_t total_size = arg_size + sizeof( detail::FreeListAllocationHeader );
+		size_t total_aligned_size = total_size + aligned_offset;
 
 		if( header->size_ >= total_aligned_size )
 		{
 			free_list_.Erase( header );
-			char* raw_ptr = reinterpret_cast<char*>(header->header_ptr_);
+			char* raw_ptr = reinterpret_cast<char*>( header->header_ptr_ );
 			raw_ptr += aligned_offset;
-			detail::FreeListAllocationHeader* alloc_header = reinterpret_cast<detail::FreeListAllocationHeader*>(raw_ptr);
+			detail::FreeListAllocationHeader* alloc_header = reinterpret_cast<detail::FreeListAllocationHeader*>( raw_ptr );
 			alloc_header->adjustment_ = aligned_offset;
 			alloc_header->size_ = arg_size;
 			raw_ptr += sizeof( detail::FreeListAllocationHeader );
-			
-			if( header->size_ >= total_aligned_size + sizeof( detail::FreeListAllocationHeader ) + detail::FreeList::minimum_header_size )
+			if( header->size_ >= total_aligned_size + sizeof( detail::FreeListAllocationHeader ) + detail::FreeList::minimum_header_size )// split header.
 			{
+				free_list_.Insert( new( allocator_->Allocate( sizeof( detail::FreeListHeader ) ) )detail::FreeListHeader( raw_ptr + arg_size, header->size_ - total_aligned_size ) );
 
+			}
+			else if( header->size_ > total_aligned_size )// bigger than but not big enough.
+			{
+				alloc_header->size_ += header->size_ - total_aligned_size; // add remainder to the size so it does not get lost.
 			}
 			return raw_ptr;
 		}
 		++itr;
 	}
-
-
 	HSA_ASSERT( false ); // out of memory
 	return nullptr;;
 }
