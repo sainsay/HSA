@@ -1005,11 +1005,17 @@ inline void* FreeListAllocator::Allocate( size_t arg_size, size_t arg_alignment 
 }
 inline void FreeListAllocator::Free( void* arg_ptr)
 {
-
+	char* raw_ptr = reinterpret_cast<char*>(arg_ptr);
+	raw_ptr -= sizeof( detail::FreeListAllocationHeader );
+	auto* alloc_header = reinterpret_cast< detail::FreeListAllocationHeader* >( raw_ptr );
+	raw_ptr -= alloc_header->adjustment_;
+	size_t mem_size = alloc_header->size_ + alloc_header->adjustment_ + sizeof( detail::FreeListAllocationHeader );
+	free_list_.Insert( new( allocator_->Allocate( sizeof( detail::FreeListHeader ) ) ) detail::FreeListHeader( raw_ptr, mem_size ) );
 }
 inline void FreeListAllocator::Reset()
 {
-	
+	free_list_.Clear();
+	free_list_.Insert( new( allocator_->Allocate( sizeof( detail::FreeListHeader ) ) ) detail::FreeListHeader( mem_pool_, pool_size_ ) );
 }
 
 inline void FreeListAllocator::Defragment()
