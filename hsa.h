@@ -494,7 +494,7 @@ namespace detail
 			{
 				if( previous == nullptr )
 				{
-					head_ = node->next_;
+					head_ = node->next_ != tail_ ? node->next_ : nullptr;
 				}
 				else
 				{
@@ -585,6 +585,7 @@ private:
 	FreeList free_list_;
 
 	Allocator * allocator_ = nullptr;
+	bool has_custom_allocator_ = false;
 	char* mem_pool_ = nullptr;
 	size_t pool_size_ = 0;
 };
@@ -946,6 +947,14 @@ FreeListAllocator::FreeListAllocator( size_t arg_size, Allocator* arg_allocator 
 }
 FreeListAllocator::~FreeListAllocator()
 {
+	if( has_custom_allocator_ == false )
+	{
+#ifndef HSA_NO_MALLOC
+		static_cast< MallocAllocator* >( allocator_ )->~MallocAllocator();
+		free( allocator_ );
+#endif // !HSA_NO_MALLOC
+		allocator_ = nullptr;
+	}
 	if( allocator_ )
 	{
 		allocator_->Free( mem_pool_ );
@@ -961,6 +970,19 @@ FreeListAllocator::~FreeListAllocator()
 
 inline void FreeListAllocator::Init()
 {
+	if( allocator_ == nullptr )
+	{
+		has_custom_allocator_ = false;
+#ifndef HSA_NO_MALLOC
+		void* mem_block = malloc( sizeof( MallocAllocator ) );
+		allocator_ = new( mem_block ) MallocAllocator;
+#endif // !HSA_NO_MALLOC
+	}
+	else
+	{
+		has_custom_allocator_ = true;
+	}
+	HSA_ASSERT( allocator_ != nullptr );
 	free_list_ = FreeList( allocator_ );
 	
 	free_list_.Insert( new(allocator_->Allocate(sizeof(detail::FreeListHeader))) detail::FreeListHeader(mem_pool_ , pool_size_ ));
