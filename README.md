@@ -28,17 +28,34 @@ All allocators except the bitmap allocator are written in such a way that you ca
 
 # implementation
 ---
-## Linear Allocator
+Any allocator with a ✔ next to it is implemented. Others are planned or currently in progress.
+
+## Linear Allocator ✔
 The linear allocator is the simplest allocator you can make. Memory is allocated by moving one pointer or offset forward until the maximum amount of memory is allocated for the allocator. Fragmentation of the allocator is minimal. All allocations are sequential and memory is guaranteed to be contiguous(if alignment allows for it). This allocator can't deallocate memory but it can be reset.
 
-## Stack Allocator
+#### Structure
+
+<img src="Images/linear_01.png">
+
+##### Allocate()
+<img src="Images/linear_02.png">
+
+## Stack Allocator ✔
 The stack allocator is one step up from the linear allocator. It uses the same technique by moving a pointer or offset forward. The stack allocator allows for deallocation by inserting a header in front of the memory allocation. this header is used to make this part of memory as free and to have a pointer to the preceding block of memory. just like the linear allocator, the memory will be contiguous. This does include the header. alignment might add small amounts of unallocated memory.
 
-## Bitmap Allocator
+#### Structure
+
+<img src="Images/stack_01.png">
+##### Allocate()
+<img src="Images/stack_02.png">
+##### Free()
+<img src="Images/stack_03.png">
+
+## Bitmap Allocator ✔
 The bitmap allocator as the name suggests uses a bitmap to keep track of allocated blocks. each block of memory is the same size. That makes this allocator a good candidate for objects like GameObjects or Entities in a game. The memory used by this allocator is guaranteed to be contiguous but the implementation prefers a linear way of allocating. this means that if you deallocate memory in the allocator this memory will be a gap. This approach is chosen because of its simplicity.
 
-## Contiguous memory Free list Allocator 
-The free list allocator is a very general allocator and can be used for a lot of applications. This allocator does not provide the speed that the linear or stack allocator provide. But just like the linear and stack allocator, it does not matter what the size you want to allocate as long as it fits in the pre-allocated memory.
+## Contiguous memory Free list Allocator ✔
+The free list allocator is a very general allocator and can be used for a lot of applications. This allocator does not provide the speed that the linear or stack allocator provide. But just like the linear and stack allocator, it does not matter what the size you want to allocate as long as it fits in the pre-allocated memory. This free list allocator makes use of a ordered singlely linked list.
 
 ## Dynamic memory Free list Allocator
 This allocator solves one of the problems that the Contiguous memory free list allocator has. The dynamic memory free list allocator will allow you to allocate more than the initial allocation. This allocator is designed to allocate more memory when it needs it. this does mean that it no longer can guarantee that it is contiguous memory and some allocations take more time because it needs to interact with the system to get more memory.
