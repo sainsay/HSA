@@ -24,6 +24,11 @@
 #endif
 #endif
 
+#if _DEBUG // only used for personal testing. not platform independent
+#define HSA_DEBUG
+#endif
+
+
 #pragma region UsefulMacros
 #ifdef HSAENVIRONMENT32
 #define GIBI(arg) arg*1024*1024*1024
@@ -42,7 +47,18 @@
 #endif // HSAENVIRONMENT
 #pragma endregion
 
-#include <iostream>
+#ifdef HSA_DONT_ASSERT
+#define HSA_ASSERT(arg)
+#else
+#include <assert.h>
+#define HSA_ASSERT( arg ) assert( arg );
+#endif // HSA_DONT_ASSERT
+
+#ifndef HSA_NO_MALLOC
+#include <cstdlib>
+#endif // !HSA_NO_MALLOC
+
+#include <new>
 
 /**
 * @brief Abstract class for allocator implementations
@@ -60,6 +76,37 @@ public:
 	*/
 	inline virtual void Free( void* arg_ptr ) = 0;
 };
+
+#ifndef HSA_NO_MALLOC
+/**
+* @brief Default Malloc Allocator 
+*/
+class MallocAllocator : public Allocator
+{
+public:
+	MallocAllocator() = default;
+	~MallocAllocator() = default;
+
+	// Inherited via Allocator
+	virtual void* Allocate( size_t arg_size, size_t arg_alignment = 0 ) override;
+	virtual void Free( void * arg_ptr ) override;
+};
+#endif // !HSA_NO_MALLOC
+#ifndef HSA_NO_MALLOC
+/**
+* @brief Default Aligned malloc Allocator
+*/
+class AlignedMallocAllocator : Allocator
+{
+public:
+	AlignedMallocAllocator() = default;
+	~AlignedMallocAllocator() = default;
+
+	// Inherited via Allocator
+	virtual void* Allocate( size_t arg_size, size_t arg_alignment = 0 ) override;
+	virtual void Free( void * arg_ptr ) override;
+};
+#endif // !HSA_NO_MALLOC
 
 /**
 * @brief Linear Allocator for quick allocation.
@@ -222,17 +269,270 @@ private:
 };
 namespace detail
 {
+	namespace FreeList
+	{ 
+		const size_t minimum_header_size = 8;
+	}
 	struct FreeListHeader
 	{
-		FreeListHeader* next_header_;
+		FreeListHeader(void* arg_ptr = nullptr, size_t arg_size = 0) :
+			header_ptr_(arg_ptr),
+			size_(arg_size)
+		{
+
+		}
+		bool operator<( FreeListHeader& arg_rhs )
+		{
+			return size_ < arg_rhs.size_;
+		}
+		bool operator==( FreeListHeader& arg_rhs )
+		{
+#ifdef HSA_DEBUG
+			if( header_ptr_ == arg_rhs.header_ptr_ )
+			{
+				if( size_ == arg_rhs.size_ )
+				{
+					return true;
+				}
+				else
+				{
+					HSA_ASSERT( false ); // ptr the same but not size.
+				}
+			}
+#else
+			if( header_ptr_ == arg_rhs.header_ptr_ && size_ == arg_rhs.size_ )
+			{
+				return true;
+			}
+#endif // HSA_DEBUG
+			return false;
+		}
+		bool operator!=( FreeListHeader& arg_rhs )
+		{
+			return !( *this == arg_rhs );
+		}
+		void* header_ptr_;
 		size_t size_;
 	};
-	namespace freelist
+	struct FreeListAllocationHeader
 	{
-		const size_t kminimum_chunk_size = 64;
-	}
-}
+		size_t adjustment_;
+		size_t size_;
+	};
+	/**
+	* @brief Ascending ordered single link list
+	*/
+	template<typename DataType >
+	class OrderedList
+	{
+	public:
+		struct Node
+		{
+			Node() :
+				data_(DataType()),
+				next_(nullptr)
+			{
 
+			}
+			~Node() = default;
+			DataType data_;
+			Node* next_;
+		};
+
+		class Iterator
+		{
+		public:
+			Iterator()
+				: node_( nullptr )
+			{
+			}
+
+			DataType operator *()
+			{
+				return node_->data_;
+			}
+
+			bool operator==( const Iterator &a_Rhs ) const
+			{
+				return node_ == a_Rhs.node_;
+			}
+
+			bool operator!=( const Iterator &a_Rhs ) const
+			{
+				return !( *this == a_Rhs );
+			}
+
+			Iterator& operator++()
+			{
+				node_ = node_->next_;
+				return *this;
+			}
+
+			Iterator operator+( int a_Step )
+			{
+				Node *node = node_;
+				while( a_Step > 0 )
+				{
+					node = node->next_;
+					--a_Step;
+				}
+				return Iterator( node );
+			}
+
+		private:
+			Iterator( Node *a_Node )
+			{
+				node_ = a_Node;
+			}
+
+			Node* node_;
+
+			friend class OrderedList;
+		};
+
+		OrderedList( Allocator* arg_allocator = nullptr )
+		{
+			allocator_ = nullptr;
+
+			if( arg_allocator == nullptr )
+			{
+				has_custom_allocator_ = false;
+#ifndef HSA_NO_MALLOC
+				void* mem_block = malloc( sizeof( MallocAllocator ) );
+				allocator_ = new( mem_block ) MallocAllocator;
+#endif // !HSA_NO_MALLOC
+			}
+			else
+			{
+				has_custom_allocator_ = true;
+				allocator_ = arg_allocator;
+			}
+			HSA_ASSERT( allocator_ != nullptr );
+			head_ = nullptr;
+			void* mem_block = allocator_->Allocate( sizeof( Node ) );
+			tail_ = new(mem_block) Node();
+
+			size_ = 0;
+		}
+		~OrderedList()
+		{
+			Clear();
+			if( has_custom_allocator_ == false )
+			{
+#ifndef HSA_NO_MALLOC
+				static_cast< MallocAllocator* >( allocator_ )->~MallocAllocator();
+				free( allocator_ );
+#endif // !HSA_NO_MALLOC
+			}
+		}
+
+		size_t Size() const
+		{
+			return size_;
+		}
+
+		bool IsEmpty() const
+		{
+			return head_ == nullptr;
+		}
+
+		Iterator Begin() const
+		{
+			return Iterator( head_ == nullptr ? tail_ : head_ );
+		}
+
+		Iterator End() const
+		{
+			return Iterator( tail_ );
+		}
+
+		Iterator Insert( DataType arg_data )
+		{
+			void* mem_block = allocator_->Allocate( sizeof( Node ) );
+			Node *node = new(mem_block) Node();
+			if( head_ == nullptr )
+			{
+				node->next_ = tail_;
+				head_ = node;
+			}
+			else
+			{
+				Node* previous = head_;
+				while( previous->data_ < arg_data && previous->next_ != tail_ )
+				{
+					previous = previous->next_;
+				}
+				node->next_ = previous->next_;
+				previous->next_ = node;
+			}
+			node->data_ = arg_data;
+			++size_;
+
+			return Iterator( node );
+		}
+
+		Iterator Find( DataType arg_data )
+		{
+			Node *node = head_;
+			while( node->data_ != arg_data && node != tail_ )
+			{
+				node = node->next_;
+			}
+			return Iterator( node );
+		}
+
+		void Erase( DataType arg_data )
+		{
+			Node *node = head_;
+			Node *previous = nullptr;
+			while( node->data_ != arg_data && node->next_ != tail_ )
+			{
+				previous = node;
+				node = node->next_;
+			}
+			if( node->data_ == arg_data )
+			{
+				if( previous == nullptr )
+				{
+					head_ = node->next_ != tail_ ? node->next_ : nullptr;
+				}
+				else
+				{
+					previous->next_ = node->next_;
+				}
+				node->~Node();
+				allocator_->Free(node);
+				--size_;
+			}
+		}
+
+		void Clear()
+		{
+			Node* node = head_;
+
+			if( node != nullptr )
+			{
+				while( node->next_ != tail_ )
+				{
+					Node* free_node = node;
+					node = node->next_;
+					free_node->~Node();
+					allocator_->Free( free_node );
+				}
+			}
+			head_ = nullptr;
+			size_ = 0;
+		}
+
+	private:
+		Allocator * allocator_;
+		bool has_custom_allocator_;
+
+		Node* head_;
+		Node* tail_;
+		size_t size_;
+	};
+}
 /**
 * @brief Freelist Allocator for general purpose allocation.
 * @details Freelist Allocator for general purpose allocation. Dealocation Possible.
@@ -279,22 +579,22 @@ public:
 	inline virtual void Defragment();
 
 private:
+	void Init();
+
+	using FreeList = detail::OrderedList<detail::FreeListHeader*>;
+	FreeList free_list_;
+
 	Allocator * allocator_ = nullptr;
+	bool has_custom_allocator_ = false;
 	char* mem_pool_ = nullptr;
 	size_t pool_size_ = 0;
-
 };
 #endif // !HSA_INCLUDE_HEADER
 
 #ifdef HSA_IMPLEMENTATION
+#ifndef HSA_NO_MALLOC
 #include <cstdlib>
-
-#ifdef HSA_DONT_ASSERT
-#define HSA_ASSERT(arg)
-#else
-#include <assert.h>
-#define HSA_ASSERT( arg ) assert( arg );
-#endif // HSA_DONT_ASSERT
+#endif // HSA_NO_MALLOC
 
 #pragma region HelperFunctions
 namespace detail
@@ -309,6 +609,27 @@ namespace detail
 		return aligned_offset == arg_alignment ? 0 : aligned_offset;
 	}
 }
+#pragma endregion
+#pragma region MallocAllocatorImplementation
+#ifndef HSA_NO_MALLOC
+void* MallocAllocator::Allocate( size_t arg_size, size_t arg_alignment )
+{
+	return malloc( arg_size );
+}
+void MallocAllocator::Free( void* arg_ptr )
+{
+	free( arg_ptr );
+}
+
+void* AlignedMallocAllocator::Allocate( size_t arg_size, size_t arg_alignement )
+{
+	return _aligned_malloc( arg_size, arg_alignement );
+}
+void AlignedMallocAllocator::Free( void* arg_ptr )
+{
+	_aligned_free( arg_ptr );
+}
+#endif // HSA_NO_MALLOC
 #pragma endregion
 #pragma region LinearAllocatorImplementation
 LinearAllocator::LinearAllocator()
@@ -342,7 +663,9 @@ LinearAllocator::~LinearAllocator()
 	}
 	else
 	{
+#ifndef HSA_NO_MALLOC
 		free( mem_pool_ );
+#endif // !HSA_NO_MALLOC
 	}
 }
 inline void* LinearAllocator::Allocate( size_t arg_size, size_t arg_alignment )
@@ -403,7 +726,9 @@ StackAllocator::~StackAllocator()
 	}
 	else
 	{
+#ifndef HSA_NO_MALLOC
 		free( mem_pool_ );
+#endif // !HSA_NO_MALLOC
 	}
 }
 
@@ -529,8 +854,10 @@ BitmapAllocator<ChunkSize>::~BitmapAllocator()
 	}
 	else
 	{
+#ifndef HSA_NO_MALLOC
 		free( mem_pool_ );
 		free( bitmap_ );
+#endif // !HSA_NO_MALLOC
 	}
 }
 template <size_t ChunkSize>
@@ -598,8 +925,8 @@ FreeListAllocator::FreeListAllocator()
 #ifndef HSA_NO_MALLOC
 	mem_pool_ = static_cast< char* >( malloc( pool_size_ = MIBI( 50 ) ) );
 #endif
-	HSA_ASSERT( mem_pool_ )
-
+	HSA_ASSERT( mem_pool_ );
+	Init();
 }
 FreeListAllocator::FreeListAllocator( size_t arg_size, Allocator* arg_allocator ) :
 	allocator_( arg_allocator )
@@ -615,34 +942,102 @@ FreeListAllocator::FreeListAllocator( size_t arg_size, Allocator* arg_allocator 
 		mem_pool_ = static_cast< char* >( malloc( pool_size_ ) );
 #endif
 	}
-	HSA_ASSERT( mem_pool_ )
-
+	HSA_ASSERT( mem_pool_ );
+	Init();
 }
 FreeListAllocator::~FreeListAllocator()
 {
+	if( has_custom_allocator_ == false )
+	{
+#ifndef HSA_NO_MALLOC
+		static_cast< MallocAllocator* >( allocator_ )->~MallocAllocator();
+		free( allocator_ );
+#endif // !HSA_NO_MALLOC
+		allocator_ = nullptr;
+	}
 	if( allocator_ )
 	{
 		allocator_->Free( mem_pool_ );
 	}
 	else
 	{
+#ifndef HSA_NO_MALLOC
 		free( mem_pool_ );
+#endif // !HSA_NO_MALLOC
+
 	}
+}
+
+inline void FreeListAllocator::Init()
+{
+	if( allocator_ == nullptr )
+	{
+		has_custom_allocator_ = false;
+#ifndef HSA_NO_MALLOC
+		void* mem_block = malloc( sizeof( MallocAllocator ) );
+		allocator_ = new( mem_block ) MallocAllocator;
+#endif // !HSA_NO_MALLOC
+	}
+	else
+	{
+		has_custom_allocator_ = true;
+	}
+	HSA_ASSERT( allocator_ != nullptr );
+	free_list_ = FreeList( allocator_ );
+	
+	free_list_.Insert( new(allocator_->Allocate(sizeof(detail::FreeListHeader))) detail::FreeListHeader(mem_pool_ , pool_size_ ));
 }
 
 inline void* FreeListAllocator::Allocate( size_t arg_size, size_t arg_alignment )
 {
-	void* return_ptr = nullptr;
-	
-	return return_ptr;
+	detail::FreeListHeader* free_header = nullptr;
+	FreeList::Iterator itr = free_list_.Begin();
+
+	while( itr != free_list_.End() )
+	{
+		auto* header = *itr;
+		size_t aligned_offset = detail::calcAlignedOffset( reinterpret_cast< size_t >( header->header_ptr_ ) + sizeof( detail::FreeListAllocationHeader ), arg_alignment );
+		size_t total_size = arg_size + sizeof( detail::FreeListAllocationHeader );
+		size_t total_aligned_size = total_size + aligned_offset;
+
+		if( header->size_ >= total_aligned_size )
+		{
+			free_list_.Erase( header );
+			char* raw_ptr = reinterpret_cast<char*>( header->header_ptr_ );
+			raw_ptr += aligned_offset;
+			detail::FreeListAllocationHeader* alloc_header = reinterpret_cast<detail::FreeListAllocationHeader*>( raw_ptr );
+			alloc_header->adjustment_ = aligned_offset;
+			alloc_header->size_ = arg_size;
+			raw_ptr += sizeof( detail::FreeListAllocationHeader );
+			if( header->size_ >= total_aligned_size + sizeof( detail::FreeListAllocationHeader ) + detail::FreeList::minimum_header_size )// split header.
+			{
+				free_list_.Insert( new( allocator_->Allocate( sizeof( detail::FreeListHeader ) ) )detail::FreeListHeader( raw_ptr + arg_size, header->size_ - total_aligned_size ) );
+
+			}
+			else if( header->size_ > total_aligned_size )// bigger than but not big enough.
+			{
+				alloc_header->size_ += header->size_ - total_aligned_size; // add remainder to the size so it does not get lost.
+			}
+			return raw_ptr;
+		}
+		++itr;
+	}
+	HSA_ASSERT( false ); // out of memory
+	return nullptr;;
 }
 inline void FreeListAllocator::Free( void* arg_ptr)
 {
-
+	char* raw_ptr = reinterpret_cast<char*>(arg_ptr);
+	raw_ptr -= sizeof( detail::FreeListAllocationHeader );
+	auto* alloc_header = reinterpret_cast< detail::FreeListAllocationHeader* >( raw_ptr );
+	raw_ptr -= alloc_header->adjustment_;
+	size_t mem_size = alloc_header->size_ + alloc_header->adjustment_ + sizeof( detail::FreeListAllocationHeader );
+	free_list_.Insert( new( allocator_->Allocate( sizeof( detail::FreeListHeader ) ) ) detail::FreeListHeader( raw_ptr, mem_size ) );
 }
 inline void FreeListAllocator::Reset()
 {
-	
+	free_list_.Clear();
+	free_list_.Insert( new( allocator_->Allocate( sizeof( detail::FreeListHeader ) ) ) detail::FreeListHeader( mem_pool_, pool_size_ ) );
 }
 
 inline void FreeListAllocator::Defragment()
