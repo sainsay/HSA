@@ -35,21 +35,21 @@ The linear allocator is the simplest allocator you can make. Memory is allocated
 
 #### Structure
 
-<img src="Images/linear_01.png">
+<img src="images/linear_01.png">
 
 ##### Allocate()
-<img src="Images/linear_02.png">
+<img src="images/linear_02.png">
 
 ## Stack Allocator ✔
 The stack allocator is one step up from the linear allocator. It uses the same technique by moving a pointer or offset forward. The stack allocator allows for deallocation by inserting a header in front of the memory allocation. this header is used to make this part of memory as free and to have a pointer to the preceding block of memory. just like the linear allocator, the memory will be contiguous. This does include the header. alignment might add small amounts of unallocated memory.
 
 #### Structure
 
-<img src="Images/stack_01.png">
+<img src="images/stack_01.png">
 ##### Allocate()
-<img src="Images/stack_02.png">
+<img src="images/stack_02.png">
 ##### Free()
-<img src="Images/stack_03.png">
+<img src="images/stack_03.png">
 
 ## Bitmap Allocator ✔
 The bitmap allocator as the name suggests uses a bitmap to keep track of allocated blocks. each block of memory is the same size. That makes this allocator a good candidate for objects like GameObjects or Entities in a game. The memory used by this allocator is guaranteed to be contiguous but the implementation prefers a linear way of allocating. this means that if you deallocate memory in the allocator this memory will be a gap. This approach is chosen because of its simplicity.
