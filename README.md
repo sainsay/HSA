@@ -45,11 +45,11 @@ The stack allocator is one step up from the linear allocator. It uses the same t
 
 #### Structure
 
-<img src="images/stack_01.png">
+<img src="images/Stack_01.png">
 ##### Allocate()
-<img src="images/stack_02.png">
+<img src="images/Stack_02.png">
 ##### Free()
-<img src="images/stack_03.png">
+<img src="images/Stack_03.png">
 
 ## Bitmap Allocator ✔
 The bitmap allocator as the name suggests uses a bitmap to keep track of allocated blocks. each block of memory is the same size. That makes this allocator a good candidate for objects like GameObjects or Entities in a game. The memory used by this allocator is guaranteed to be contiguous but the implementation prefers a linear way of allocating. this means that if you deallocate memory in the allocator this memory will be a gap. This approach is chosen because of its simplicity.
