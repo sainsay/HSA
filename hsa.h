@@ -582,7 +582,7 @@ private:
 	void Init();
 
 	using FreeList = detail::OrderedList<detail::FreeListHeader*>;
-	FreeList free_list_;
+	FreeList* free_list_;
 
 	Allocator * allocator_ = nullptr;
 	bool has_custom_allocator_ = false;
@@ -947,6 +947,8 @@ FreeListAllocator::FreeListAllocator( size_t arg_size, Allocator* arg_allocator 
 }
 FreeListAllocator::~FreeListAllocator()
 {
+	free_list_->~OrderedList();
+	allocator_->Free( free_list_ );
 	if( has_custom_allocator_ == false )
 	{
 #ifndef HSA_NO_MALLOC
@@ -983,17 +985,18 @@ inline void FreeListAllocator::Init()
 		has_custom_allocator_ = true;
 	}
 	HSA_ASSERT( allocator_ != nullptr );
-	free_list_ = FreeList( allocator_ );
+
+	free_list_ = new (allocator_->Allocate(sizeof(FreeList))) FreeList( allocator_ );
 	
-	free_list_.Insert( new(allocator_->Allocate(sizeof(detail::FreeListHeader))) detail::FreeListHeader(mem_pool_ , pool_size_ ));
+	free_list_->Insert( new(allocator_->Allocate(sizeof(detail::FreeListHeader))) detail::FreeListHeader(mem_pool_ , pool_size_ ));
 }
 
 inline void* FreeListAllocator::Allocate( size_t arg_size, size_t arg_alignment )
 {
 	detail::FreeListHeader* free_header = nullptr;
-	FreeList::Iterator itr = free_list_.Begin();
+	FreeList::Iterator itr = free_list_->Begin();
 
-	while( itr != free_list_.End() )
+	while( itr != free_list_->End() )
 	{
 		auto* header = *itr;
 		size_t aligned_offset = detail::calcAlignedOffset( reinterpret_cast< size_t >( header->header_ptr_ ) + sizeof( detail::FreeListAllocationHeader ), arg_alignment );
@@ -1002,7 +1005,7 @@ inline void* FreeListAllocator::Allocate( size_t arg_size, size_t arg_alignment 
 
 		if( header->size_ >= total_aligned_size )
 		{
-			free_list_.Erase( header );
+			free_list_->Erase( header );
 			char* raw_ptr = reinterpret_cast<char*>( header->header_ptr_ );
 			raw_ptr += aligned_offset;
 			detail::FreeListAllocationHeader* alloc_header = reinterpret_cast<detail::FreeListAllocationHeader*>( raw_ptr );
@@ -1011,7 +1014,7 @@ inline void* FreeListAllocator::Allocate( size_t arg_size, size_t arg_alignment 
 			raw_ptr += sizeof( detail::FreeListAllocationHeader );
 			if( header->size_ >= total_aligned_size + sizeof( detail::FreeListAllocationHeader ) + detail::FreeList::minimum_header_size )// split header.
 			{
-				free_list_.Insert( new( allocator_->Allocate( sizeof( detail::FreeListHeader ) ) )detail::FreeListHeader( raw_ptr + arg_size, header->size_ - total_aligned_size ) );
+				free_list_->Insert( new( allocator_->Allocate( sizeof( detail::FreeListHeader ) ) )detail::FreeListHeader( raw_ptr + arg_size, header->size_ - total_aligned_size ) );
 
 			}
 			else if( header->size_ > total_aligned_size )// bigger than but not big enough.
@@ -1032,12 +1035,12 @@ inline void FreeListAllocator::Free( void* arg_ptr)
 	auto* alloc_header = reinterpret_cast< detail::FreeListAllocationHeader* >( raw_ptr );
 	raw_ptr -= alloc_header->adjustment_;
 	size_t mem_size = alloc_header->size_ + alloc_header->adjustment_ + sizeof( detail::FreeListAllocationHeader );
-	free_list_.Insert( new( allocator_->Allocate( sizeof( detail::FreeListHeader ) ) ) detail::FreeListHeader( raw_ptr, mem_size ) );
+	free_list_->Insert( new( allocator_->Allocate( sizeof( detail::FreeListHeader ) ) ) detail::FreeListHeader( raw_ptr, mem_size ) );
 }
 inline void FreeListAllocator::Reset()
 {
-	free_list_.Clear();
-	free_list_.Insert( new( allocator_->Allocate( sizeof( detail::FreeListHeader ) ) ) detail::FreeListHeader( mem_pool_, pool_size_ ) );
+	free_list_->Clear();
+	free_list_->Insert( new( allocator_->Allocate( sizeof( detail::FreeListHeader ) ) ) detail::FreeListHeader( mem_pool_, pool_size_ ) );
 }
 
 inline void FreeListAllocator::Defragment()
