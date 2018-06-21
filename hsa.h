@@ -109,6 +109,97 @@ public:
 #endif // !HSA_NO_MALLOC
 
 /**
+* @brief STL compatible wrapper usable for std containers and smart pointers
+*/
+template<class C>
+class STLAllocatorWrapper
+{
+public:
+	typedef C value_type;
+	/**
+	* @brief default constructor
+	*/
+	STLAllocatorWrapper()
+	{
+		HSA_ASSERT( false ); //cannot construct STLAllocatorWrapper with no Allocator*
+	}
+	/**
+	* @brief constructor
+	* @param Allocator* used for allocating memory
+	*/
+	explicit STLAllocatorWrapper( Allocator* arg_allocator ):
+		allocator_(arg_allocator)
+	{
+
+	}
+	/**
+	* @brief Copy constructor
+	* @detail copy constructor that accepts any version of STLAllocatorWrapper
+	*/
+	template<class U>
+	STLAllocatorWrapper( const STLAllocatorWrapper<U>& arg_rhs ):
+		allocator_(arg_rhs.allocator_)
+	{
+
+	}
+	/**
+	* @brief move constructor
+	* @detail move constructor that accepts any version of STLAllocatorWrapper
+	*/
+	template<class U>
+	STLAllocatorWrapper( STLAllocatorWrapper<U>&& arg_rhs ) : 
+		allocator_(arg_rhs.allocator_)
+	{
+		arg_rhs.allocator_ = nullptr;
+	}
+	/**
+	* @brief destructor
+	*/
+	~STLAllocatorWrapper()
+	{
+	}
+	/**
+	* @brief allocates x times the sizeof ( C )
+	* @param amount objects
+	*/
+	C* allocate( size_t arg_count )
+	{
+		return reinterpret_cast< C* >( allocator_->Allocate( arg_count * sizeof( C ) ) );
+	}
+	/**
+	* @brief deallocates pointer
+	* @param pointer
+	* @param size of allocation UNUSED
+	*/
+	void deallocate( C* arg_ptr, size_t arg_size )
+	{
+		allocator_->Free( arg_ptr );
+	}
+
+private:
+	template<class U>
+	friend class STLAllocatorWrapper; // friend class other instances of the template.
+
+	Allocator* allocator_; // pointer to allocator used for allocation.
+};
+/**
+* @brief equal operator. equal if Allocator* allocator_ is equal
+*/
+template<class C, class U>
+bool operator==( const STLAllocatorWrapper<C>& arg_lhs, const STLAllocatorWrapper<U>& arg_rhs )
+{
+	return arg_lhs.allocator_ == arg_rhs.allocator_;
+}
+/**
+* @brief not equal operator. same as equal operator but oposite return value
+*/
+template<class C, class U>
+bool operator!=( const STLAllocatorWrapper<C>& arg_lhs, const STLAllocatorWrapper<U>& arg_rhs )
+{
+	return arg_lhs.allocator_ != arg_rhs.allocator_;
+}
+
+/**
 * @brief Linear Allocator for quick allocation.
 * @details Linear Allocator for quick allocation. Dealocation not possible. Allocator can be reset and reused.
 */
