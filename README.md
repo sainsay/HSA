@@ -20,11 +20,12 @@ it is recommended to only include this header in source files (.cpp).
 To enable the implementation, define ```#define HSA_IMPLEMENTATION``` before including. 
 
 to disable ```assert()``` define ```#define HSA_DONT_ASSERT```
-this might be required by some application to be able to distribute it. Do not disable ```assert()``` if not absolutely necessary.  
+this might be required by some application to be able to distribute it. Do not disable ```assert()``` if not absolutely necessary.
+
+To use the allocators with STL containers and smart pointers use the STLAllocatorWrapper class. Pass an Allocator in ```STLAllocatorWrapper::STLAllocatorWrapper( Allocator* )``` and give the newly created STLAllocatorWrapper to a container when it is created. see example_STL in the examples.  
 
 ## extend
-All allocators except the bitmap allocator are written in such a way that you can inherit from them. A base class ```Allocator``` is provided so that it is possible to write allocators that are compatible with the allocators that are provided.
-
+All allocators except the bitmap allocator are written in such a way that you can inherit from them. A base class ```Allocator``` is provided so that it is possible to write allocators that are compatible with the allocators that are provided. see example_system_allocator in the examples
 
 # implementation
 ---
@@ -65,6 +66,7 @@ This allocator solves one of the problems that the Contiguous memory free list a
 
 - Implement thread safety
 - Write examples.
-- Write wrapper for STL compatibility (std::Allocator for std::vector, std::map, etc)
+    - STL example
+    - basic memory manager
 - provide images for implementation.
 
