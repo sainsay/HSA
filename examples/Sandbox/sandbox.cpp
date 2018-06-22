@@ -13,66 +13,7 @@
 #include <vector>
 
 template<class T>
-class StdAllocator 
-{
-public:
-	typedef T value_type;
-	StdAllocator()
-	{
-		HSA_ASSERT( false ); //cannot construct StdAllocator with no Alllocator*
-	}
-	StdAllocator( Allocator* arg_allocator ) :
-		allocator_(arg_allocator)
-	{
-	}
-	template<class U>
-	StdAllocator( const StdAllocator<U>& arg_rhs ) : 
-		allocator_(arg_rhs.allocator_)
-	{
-	}
-	template<class U>
-	StdAllocator( StdAllocator<U>&& arg_rhs ) :
-		allocator_(arg_rhs.allocator_)
-	{
-		arg_rhs.allocator_ = nullptr;
-	}
-	~StdAllocator()
-	{
-	}
-	T* allocate( size_t arg_count )
-	{
-		return reinterpret_cast<T*>(allocator_->Allocate( arg_count * sizeof(T) ));
-	}
-	void deallocate( T* arg_ptr, size_t arg_size )
-	{
-		allocator_->Free( arg_ptr );
-	}
-
-	Allocator* GetAllocator()
-	{
-		return allocator_;
-	}
-
-private:
-	template<class U>
-	friend class StdAllocator;
-
-	Allocator * allocator_;
-};
-
-template<class T, class U>
-bool operator==( const StdAllocator<T>& arg_lhs, const StdAllocator<U>& arg_rhs )
-{
-	return arg_lhs.allocator_ == arg_rhs.allocator_;
-}
-template<class T, class U>
-bool operator!=( const StdAllocator<T>& arg_lhs, const StdAllocator<U>& arg_rhs )
-{
-	return arg_lhs.allocator_ != arg_rhs.allocator_;
-}
-
-template<class T>
-using StdVector = std::vector<T, StdAllocator<void>>;
+using StdVector = std::vector<T, STLAllocatorWrapper<void>>;
 
 struct DataTest2
 {
@@ -93,15 +34,15 @@ struct DataTest
 int main( int arg_n, char** arg_s )
 {
 	FreeListAllocator free_list_alloc = FreeListAllocator( MIBI( 500 ) );
-	StdAllocator<void> std_alloc = StdAllocator<void>( &free_list_alloc );
-	StdVector<int> custom_int_vector = StdVector<int>( std_alloc );
+	STLAllocatorWrapper<void> std_alloc = STLAllocatorWrapper<void>( &free_list_alloc );
+	//StdVector<int> custom_int_vector = StdVector<int>( std_alloc );
 
-	custom_int_vector.push_back( 3 );
-	custom_int_vector.push_back( 5 );
-	custom_int_vector.push_back( 7 );
+	//custom_int_vector.push_back( 3 );
+	//custom_int_vector.push_back( 5 );
+	//custom_int_vector.push_back( 7 );
 
 	
-	//std::shared_ptr<DataTest2> int_shptr = std::allocate_shared<DataTest2>( std_alloc, DataTest2() );
+	std::shared_ptr<DataTest2> int_shptr = std::allocate_shared<DataTest2>( std_alloc, DataTest2() );
 	std::getchar();
 
 	return 0;
