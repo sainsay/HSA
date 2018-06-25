@@ -1015,6 +1015,23 @@ inline void BitmapAllocator<ChunkSize>::Reset()
 }
 #pragma endregion
 #pragma region FreeListAllocatorImplementation
+namespace detail
+{
+	inline bool Merge2ItrBlocks( OrderedList<FreeListHeader>& arg_list, OrderedList<FreeListHeader>::Iterator& arg_lhs,  OrderedList<FreeListHeader>::Iterator& arg_rhs)
+	{
+		bool result = false;
+		if( arg_lhs != arg_list.End() && arg_rhs != arg_list.End() )
+		{
+			result = reinterpret_cast<void*>(reinterpret_cast<size_t>((*arg_lhs).header_ptr_) + (*arg_lhs).size_) == (*arg_rhs).header_ptr_;
+			if( result )
+			{
+				( *arg_lhs ).size_ += ( *arg_rhs ).size_;
+				arg_list.Erase( ( *arg_rhs ) );
+			}
+		}
+		return result;
+	}
+}
 FreeListAllocator::FreeListAllocator() 
 {
 #ifndef HSA_NO_MALLOC
