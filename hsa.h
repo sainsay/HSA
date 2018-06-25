@@ -464,7 +464,7 @@ namespace detail
 				Node *node = node_;
 				while( a_Step > 0 )
 				{
-					if( node == End() )
+					if( node->next_ == nullptr)
 					{
 						return node;
 					}
