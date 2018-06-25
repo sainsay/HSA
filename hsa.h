@@ -438,7 +438,7 @@ namespace detail
 			{
 			}
 
-			DataType operator *()
+			DataType& operator *()
 			{
 				return node_->data_;
 			}
@@ -464,6 +464,10 @@ namespace detail
 				Node *node = node_;
 				while( a_Step > 0 )
 				{
+					if( node == End() )
+					{
+						return node;
+					}
 					node = node->next_;
 					--a_Step;
 				}
