@@ -374,7 +374,7 @@ namespace detail
 		}
 		bool operator<( FreeListHeader& arg_rhs )
 		{
-			return size_ < arg_rhs.size_;
+			return reinterpret_cast<size_t>(header_ptr_) < reinterpret_cast<size_t>(arg_rhs.header_ptr_);
 		}
 		bool operator==( FreeListHeader& arg_rhs )
 		{
