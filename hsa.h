@@ -1017,15 +1017,15 @@ inline void BitmapAllocator<ChunkSize>::Reset()
 #pragma region FreeListAllocatorImplementation
 namespace detail
 {
-	inline bool Merge2ItrBlocks( OrderedList<FreeListHeader>& arg_list, OrderedList<FreeListHeader>::Iterator& arg_lhs,  OrderedList<FreeListHeader>::Iterator& arg_rhs)
+	inline bool Merge2ItrBlocks( OrderedList<FreeListHeader*>& arg_list, OrderedList<FreeListHeader*>::Iterator& arg_lhs,  OrderedList<FreeListHeader*>::Iterator& arg_rhs)
 	{
 		bool result = false;
 		if( arg_lhs != arg_list.End() && arg_rhs != arg_list.End() )
 		{
-			result = reinterpret_cast<void*>(reinterpret_cast<size_t>((*arg_lhs).header_ptr_) + (*arg_lhs).size_) == (*arg_rhs).header_ptr_;
+			result = reinterpret_cast<void*>(reinterpret_cast<size_t>((*arg_lhs)->header_ptr_) + (*arg_lhs)->size_) == (*arg_rhs)->header_ptr_;
 			if( result )
 			{
-				( *arg_lhs ).size_ += ( *arg_rhs ).size_;
+				( *arg_lhs )->size_ += ( *arg_rhs )->size_;
 				arg_list.Erase( ( *arg_rhs ) );
 			}
 		}
@@ -1081,7 +1081,6 @@ FreeListAllocator::~FreeListAllocator()
 
 	}
 }
-
 inline void FreeListAllocator::Init()
 {
 	if( allocator_ == nullptr )
@@ -1102,7 +1101,6 @@ inline void FreeListAllocator::Init()
 	
 	free_list_->Insert( new(allocator_->Allocate(sizeof(detail::FreeListHeader))) detail::FreeListHeader(mem_pool_ , pool_size_ ));
 }
-
 inline void* FreeListAllocator::Allocate( size_t arg_size, size_t arg_alignment )
 {
 	detail::FreeListHeader* free_header = nullptr;
@@ -1154,10 +1152,29 @@ inline void FreeListAllocator::Reset()
 	free_list_->Clear();
 	free_list_->Insert( new( allocator_->Allocate( sizeof( detail::FreeListHeader ) ) ) detail::FreeListHeader( mem_pool_, pool_size_ ) );
 }
-
 inline void FreeListAllocator::Defragment()
 {
-	
+	auto itr = free_list_->Begin();
+	if( itr != free_list_->End() )
+	{
+		bool is_done = false;
+		while( is_done == false )
+		{
+			auto next = itr + 1;
+			if( next != free_list_->End() )
+			{
+				bool result = detail::Merge2ItrBlocks(*free_list_, itr, next);
+				if( result == false )
+				{
+					itr = next;
+				}
+			}
+			else
+			{
+				is_done = true;
+			}
+		}
+	}
 }
 #pragma endregion
 #endif // HSA_IMPLEMENTATION
