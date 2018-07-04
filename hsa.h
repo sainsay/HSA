@@ -47,6 +47,8 @@
 #endif // HSAENVIRONMENT
 #pragma endregion
 
+#define HSA_UNUSED(arg) (void)(arg)
+
 #ifdef HSA_DONT_ASSERT
 #define HSA_ASSERT(arg)
 #else
@@ -57,6 +59,8 @@
 #ifndef HSA_NO_MALLOC
 #include <cstdlib>
 #endif // !HSA_NO_MALLOC
+
+
 
 #include <new>
 
@@ -709,6 +713,7 @@ namespace detail
 #ifndef HSA_NO_MALLOC
 void* MallocAllocator::Allocate( size_t arg_size, size_t arg_alignment )
 {
+	HSA_UNUSED(arg_alignment);
 	return malloc( arg_size );
 }
 void MallocAllocator::Free( void* arg_ptr )
@@ -782,6 +787,7 @@ inline void* LinearAllocator::Allocate( size_t arg_size, size_t arg_alignment )
 }
 inline void LinearAllocator::Free( void* arg_ptr )
 {
+	HSA_UNUSED( arg_ptr );
 	HSA_ASSERT(false) //you cannot free memory with a linear allocator
 }
 inline void LinearAllocator::Reset()
@@ -1103,7 +1109,6 @@ inline void FreeListAllocator::Init()
 }
 inline void* FreeListAllocator::Allocate( size_t arg_size, size_t arg_alignment )
 {
-	detail::FreeListHeader* free_header = nullptr;
 	FreeList::Iterator itr = free_list_->Begin();
 
 	while( itr != free_list_->End() )
